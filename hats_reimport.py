@@ -7,6 +7,7 @@ from shutil import rmtree
 
 from dask.distributed import Client
 from hats import read_hats
+from hats.catalog import Catalog
 from hats_import.catalog.arguments import ImportArguments
 from hats_import.catalog.file_readers import ParquetReader
 from hats_import.margin_cache.margin_cache_arguments import MarginCacheArguments
@@ -22,9 +23,18 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def hats_import_main_catalog(input_catalog_path: Path, output_dir: Path, output_name: str | None):
-    catalog = read_hats(input_catalog_path)
+def get_hats_catalog(inp: Path):
+    properties = next(inp.rglob("properties"))
+    catalog_path = properties.parent
+    return read_hats(catalog_path)
 
+
+def hats_import_main_catalog(
+        input_catalog_path: Path,
+        output_dir: Path,
+        output_name: str | None,
+        catalog: Catalog,
+):
     column_names = catalog.schema.names
     column_names.remove('Dir')
     column_names.remove('Norder')
@@ -35,7 +45,7 @@ def hats_import_main_catalog(input_catalog_path: Path, output_dir: Path, output_
     args = ImportArguments(
         ra_column=catalog.catalog_info.ra_column,
         dec_column=catalog.catalog_info.dec_column,
-        input_path=input_catalog_path / "dataset",
+        input_path=input_catalog_path,
         file_reader=ParquetReader(column_names=column_names),
         output_artifact_name=name,
         output_path=output_dir,
@@ -79,14 +89,19 @@ def hats_import_margin_catalog(
     return True
 
 
+def hats_reimport(inp: Path, out: Path, name: str | None):
+    hats_catalog = get_hats_catalog(inp)
+    name = hats_import_main_catalog(inp, out, name, hats_catalog)
+    hats_import_margin_catalog(out / name, 10)
+
+
 def main(argv=None):
     args = parse_args(argv)
     inp = args.input
     out = args.output
     name = args.new_name
 
-    name = hats_import_main_catalog(inp, out, name)
-    hats_import_margin_catalog(out / name, 10)
+    hats_reimport(inp, out, name)
 
 
 if __name__ == '__main__':
